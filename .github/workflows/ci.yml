@@ -1,0 +1,37 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: { POSTGRES_USER: linkboard, POSTGRES_PASSWORD: linkboard, POSTGRES_DB: linkboard }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U linkboard" --health-interval 2s --health-retries 15
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go vet ./...
+      - run: test -z "$(gofmt -l .)"
+      - run: go test -count=1 -race -coverprofile=coverage.out ./...
+        env:
+          LINKBOARD_TEST_DATABASE_URL: postgres://linkboard:linkboard@localhost:5432/linkboard?sslmode=disable
+          LINKBOARD_TEST_REDIS_ADDR: localhost:6379
+      - run: go tool cover -func=coverage.out | tail -1
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --build-arg SERVICE=api -t linkboard-api:ci .
+      - run: docker build --build-arg SERVICE=worker -t linkboard-worker:ci .
+      - run: docker build -t linkboard-frontend:ci frontend

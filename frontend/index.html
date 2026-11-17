@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linkboard</title>
+<style>
+  /* Stile minimale di default: la fase di design UI è rimandata (docs/decisions.md). */
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 720px; margin: 2rem auto; padding: 0 16px; }
+  form { display: flex; gap: .5rem; }
+  input { flex: 1; padding: .5rem; font-size: 1rem; }
+  button { padding: .5rem 1rem; font-size: 1rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+  th, td { text-align: left; padding: .4rem; border-bottom: 1px solid #8884; overflow-wrap: anywhere; }
+  .muted { opacity: .6; font-size: .9rem; }
+  .error { color: #c33; }
+</style>
+</head>
+<body>
+<h1>Linkboard</h1>
+<form id="f">
+  <input id="url" type="url" placeholder="https://..." required aria-label="URL da accorciare">
+  <button>Accorcia</button>
+</form>
+<p id="msg" role="status"></p>
+<table>
+  <thead><tr><th>Codice</th><th>Destinazione</th><th>Click</th></tr></thead>
+  <tbody id="rows"><tr><td colspan="3" class="muted">Caricamento…</td></tr></tbody>
+</table>
+<p class="muted" id="ver"></p>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function load() {
+  try {
+    const res = await fetch('/api/links');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const links = await res.json();
+    $('rows').innerHTML = links.length
+      ? links.map(l => `<tr><td><a href="/r/${esc(l.code)}">${esc(l.code)}</a></td><td>${esc(l.url)}</td><td>${l.clicks}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="muted">Nessun link ancora.</td></tr>';
+  } catch (e) {
+    $('rows').innerHTML = `<tr><td colspan="3" class="error">API non raggiungibile (${esc(e.message)})</td></tr>`;
+  }
+  // Quale pod ha risposto? Ricarica più volte con più repliche e guarda cambiare il nome.
+  fetch('/version').then(r => r.json()).then(v => $('ver').textContent = `api ${v.version} · pod ${v.pod}`).catch(() => {});
+}
+
+$('f').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const res = await fetch('/api/links', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url: $('url').value }) });
+  const body = await res.json().catch(() => ({}));
+  $('msg').className = res.ok ? '' : 'error';
+  $('msg').textContent = res.ok ? `Creato: ${location.origin}/r/${body.code}` : (body.error || 'Errore');
+  if (res.ok) { $('url').value = ''; load(); }
+});
+
+load();
+setInterval(load, 5000); // i click li conta il worker in modo asincrono
+</script>
+</body>
+</html>

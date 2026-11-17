@@ -1,0 +1,39 @@
+# Settimana 0: tutto lo stack in locale. Avvio: docker compose up --build  →  http://localhost:8000
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: linkboard
+      POSTGRES_PASSWORD: linkboard   # solo per lo sviluppo locale; in K8s andrà in un Secret
+      POSTGRES_DB: linkboard
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkboard"]
+      interval: 2s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+
+  api:
+    build: { context: ., args: { SERVICE: api } }
+    environment: &env
+      DATABASE_URL: postgres://linkboard:linkboard@postgres:5432/linkboard
+      REDIS_ADDR: redis:6379
+      APP_VERSION: v0.1.0
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+
+  worker:
+    build: { context: ., args: { SERVICE: worker } }
+    environment: *env
+    depends_on: [api]   # l'api crea lo schema
+
+  frontend:
+    build: ./frontend
+    ports: ["8000:80"]
+    depends_on: [api]
+
+volumes:
+  pgdata:
